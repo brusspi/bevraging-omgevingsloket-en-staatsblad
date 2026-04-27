@@ -1,25 +1,39 @@
 name: Check Omgevingsloket
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Alleen handmatig triggeren zoals je vroeg
 
 jobs:
   run-check:
     runs-on: ubuntu-latest
+    # Rechten toevoegen om bestanden terug te kunnen schrijven naar de repo
+    permissions:
+      contents: write
+    
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Fix voor de Node.js waarschuwing
+
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.10'
 
-      # Hier zet je de installatie-stap:
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          # We installeren de specifieke bibliotheken voor GIS werk
+          pip install requests geopandas pandas shapely fiona pyogrio
 
       - name: Run analyse
         run: python main.py
-        env:
-          DRY_RUN: "true"
+
+      - name: Commit en Push resultaten
+        run: |
+          git config --global user.name 'GitHub Action Bot'
+          git config --global user.email 'action@github.com'
+          git add data.json
+          # Alleen commiten als er echt iets veranderd is in de data
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update data.json met nieuwste kruisingen" && git push)
