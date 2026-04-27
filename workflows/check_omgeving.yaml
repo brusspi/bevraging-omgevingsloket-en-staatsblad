@@ -1,6 +1,8 @@
 name: Check Omgevingsloket
 on:
-  workflow_dispatch: # Knop in GitHub om handmatig te draaien
+  schedule:
+    - cron: '0 2 * * *' # Draait elke dag om 02:00 uur 's nachts
+  workflow_dispatch:      # Handmatige knop blijft werken
 
 jobs:
   run-check:
@@ -16,4 +18,4 @@ jobs:
       - name: Run analyse
         run: python main.py
         env:
-          DRY_RUN: "true" # Verander dit naar "false" als je mail wilt versturen
+          DRY_RUN: "false" # Zet op "true" voor testen
