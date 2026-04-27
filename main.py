@@ -18,7 +18,7 @@ def download_bestand(url, lokaal_pad):
         print("Download voltooid.")
 
 # Gebruik dit in je main functie
-download_bestand("https://drive.google.com/file/d/12ak6jAlG2AbMvF1Xe56i6gZ_QaRiB9Cd/view?usp=sharing", "trage_wegen_register.geojson")
+download_bestand("https://drive.google.com/uc?export=download&id=12ak6jAlG2AbMvF1Xe56i6gZ_QaRiB9Cd", "trage_wegen_register.geojson")
 
 def main():
     print(f"--- Analyse gestart (Dry Run: {DRY_RUN}) ---")
