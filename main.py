@@ -1,59 +1,105 @@
 import json
-import os
 import requests
 import geopandas as gpd
 import pandas as pd
 from shapely import wkt
+import os
 
 # --- CONFIGURATIE ---
-GEMEENTE = "deinze"
-WFS_URL = "https://geoservices.informatievlaanderen.be/overdrachtdiensten/TrageWegen/wfs"
-WFS_LAYER = "TrageWegen:TrageWegen"
+# De specifieke WFS van Vlaams-Brabant
+WFS_URL = "https://geoservices.vlaamsbrabant.be/TrageWegen/MapServer/WFSServer"
+WFS_LAYER = "dataservices_TrageWegen:F_TrageWegen"
+OMV_API_URL = "https://omgevingsloketinzage.omgeving.vlaanderen.be/proxy-omv-up/rs/v1/inzage/projecten"
 
-def get_bbox_voor_gemeente(gemeente):
+def get_bboxes():
+    """Laadt de BBOXen van alle gemeenten uit de lokale JSON"""
+    if not os.path.exists('gemeente_bbox.json'):
+        print("FOUT: gemeente_bbox.json niet gevonden!")
+        return {}
     with open('gemeente_bbox.json', 'r') as f:
-        bboxes = json.load(f)
-    # Geeft (minx, miny, maxx, maxy) terug
-    return tuple(bboxes.get(gemeente.lower()))
+        return json.load(f)
 
 def haal_api_vergunningen(gemeente):
-    print(f"API bevragen voor {gemeente}...")
-    url = "https://omgevingsloketinzage.omgeving.vlaanderen.be/proxy-omv-up/rs/v1/inzage/projecten"
+    """Haalt de meest recente vergunningsaanvragen op via de API"""
+    print(f"  > API bevragen voor {gemeente}...")
     params = {'gemeente': gemeente, 'limit': 100}
-    response = requests.get(url, params=params, headers={'User-Agent': 'Mozilla/5.0'})
-    if response.status_code == 200:
-        data = response.json()
-        df = pd.DataFrame(data)
-        if 'wktGeometry' in df.columns:
-            df['geometry'] = df['wktGeometry'].apply(wkt.loads)
-            gdf = gpd.GeoDataFrame(df, geometry='geometry', crs="EPSG:31370")
-            return gdf.to_crs("EPSG:4326")
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    
+    try:
+        response = requests.get(OMV_API_URL, params=params, headers=headers, timeout=30)
+        if response.status_code == 200:
+            data = response.json()
+            if not data: 
+                return None
+            df = pd.DataFrame(data)
+            if 'wktGeometry' in df.columns:
+                # API data komt vaak in Lambert 72 (31370)
+                df['geometry'] = df['wktGeometry'].apply(wkt.loads)
+                gdf = gpd.GeoDataFrame(df, geometry='geometry', crs="EPSG:31370")
+                # Omzetten naar WGS84 voor de kaart/webpagina
+                return gdf.to_crs("EPSG:4326")
+        else:
+            print(f"  > API Fout: Status {response.status_code}")
+    except Exception as e:
+        print(f"  > Fout bij API call: {e}")
     return None
 
 def main():
-    print("--- Analyse gestart via WFS ---")
+    print("--- Start Gecombineerde Analyse (WFS & API) ---")
+    gemeenten = get_bboxes()
     
-    # 1. BBOX en Wegen ophalen
-    bbox = get_bbox_voor_gemeente(GEMEENTE)
-    print(f"Ophalen wegen voor bbox: {bbox}")
-    wegen_gdf = gpd.read_file(WFS_URL, bbox=bbox, layer=WFS_LAYER)
-    
-    # 2. Vergunningen ophalen
-    verg_gdf = haal_api_vergunningen(GEMEENTE)
-    if verg_gdf is None or verg_gdf.empty:
-        print("Geen vergunningen gevonden.")
+    if not gemeenten:
+        print("Geen gemeenten om te verwerken.")
         return
 
-    # 3. Analyse
-    matches = gpd.sjoin(verg_gdf, wegen_gdf, how="inner", predicate="intersects")
-    print(f"Aantal kruisingen: {len(matches)}")
+    alle_resultaten = []
 
-    # 4. Resultaat opslaan
-    if not matches.empty:
-        resultaat = matches.drop(columns=['geometry', 'index_right'], errors='ignore').to_dict(orient='records')
+    for naam, bbox in gemeenten.items():
+        print(f"\n--- Verwerken: {naam.upper()} ---")
+        
+        # 1. Wegen ophalen via WFS (Vlaams-Brabant)
+        try:
+            # We vragen de data op binnen de bbox en forceren WGS84
+            # ESRI MapServers verwachten vaak de bbox als tuple: (minx, miny, maxx, maxy)
+            wegen_gdf = gpd.read_file(WFS_URL, bbox=tuple(bbox), layer=WFS_LAYER)
+            
+            if wegen_gdf.empty:
+                print(f"  > Geen wegen gevonden in de bbox voor {naam}.")
+                continue
+            
+            # Zorg dat wegen in WGS84 staan voor de join
+            if wegen_gdf.crs != "EPSG:4326":
+                wegen_gdf = wegen_gdf.to_crs("EPSG:4326")
+                
+        except Exception as e:
+            print(f"  > Fout bij ophalen WFS wegen: {e}")
+            continue
+
+        # 2. Vergunningen ophalen
+        verg_gdf = haal_api_vergunningen(naam)
+        
+        # 3. Ruimtelijke Analyse (Kruising)
+        if verg_gdf is not None and not verg_gdf.empty:
+            # Join de twee lagen
+            matches = gpd.sjoin(verg_gdf, wegen_gdf, how="inner", predicate="intersects")
+            
+            if not matches.empty:
+                # Voeg gemeentenaam toe voor de frontend filter
+                matches['gemeente_naam'] = naam
+                # Verwijder kolommen die niet in JSON kunnen (zoals de geometrie zelf)
+                resultaat_voor_json = matches.drop(columns=['geometry', 'index_right'], errors='ignore')
+                alle_resultaten.append(resultaat_voor_json)
+                print(f"  > SUCCESS: {len(matches)} kruisingen gevonden!")
+            else:
+                print("  > Resultaat: Geen kruisingen met trage wegen.")
+        else:
+            print("  > Resultaat: Geen vergunningen gevonden voor deze gemeente.")
+
+    # 4. Data exporteren voor de webpagina
+    if alle_resultaten:
+        final_df = pd.concat(alle_resultaten)
+        output_data = final_df.to_dict(orient='records')
+        
         with open('data.json', 'w', encoding='utf-8') as f:
-            json.dump(resultaat, f, ensure_ascii=False, indent=4)
-        print("data.json bijgewerkt.")
-
-if __name__ == "__main__":
-    main()
+            json.dump(output_data, f, ensure_ascii=False, indent=4)
+        print(f"\n✅
