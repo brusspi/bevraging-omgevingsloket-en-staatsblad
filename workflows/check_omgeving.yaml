@@ -1,0 +1,19 @@
+name: Check Omgevingsloket
+on:
+  workflow_dispatch: # Knop in GitHub om handmatig te draaien
+
+jobs:
+  run-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install requests geopandas pandas shapely
+      - name: Run analyse
+        run: python main.py
+        env:
+          DRY_RUN: "true" # Verander dit naar "false" als je mail wilt versturen
