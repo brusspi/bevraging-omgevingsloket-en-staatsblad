@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <input type="text" id="gemeenteInput" placeholder="Geef gemeente op...">
+    <button onclick="filterData()">Zoek</button>
+    <div id="resultaten"></div>
+
+    <script>
+        async function filterData() {
+            const gemeente = document.getElementById('gemeenteInput').value.toLowerCase();
+            const response = await fetch('data.json');
+            const data = await response.json();
+            
+            // Filter de data op basis van de ingevulde gemeente
+            const resultaat = data.filter(item => item.GEMEENTE.toLowerCase() === gemeente);
+            
+            document.getElementById('resultaten').innerHTML = JSON.stringify(resultaat);
+        }
+    </script>
+</body>
+</html>
