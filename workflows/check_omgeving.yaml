@@ -1,21 +1,25 @@
 name: Check Omgevingsloket
 on:
   schedule:
-    - cron: '0 2 * * *' # Draait elke dag om 02:00 uur 's nachts
-  workflow_dispatch:      # Handmatige knop blijft werken
+    - cron: '0 2 * * *'
+  workflow_dispatch:
 
 jobs:
   run-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      # Hier zet je de installatie-stap:
       - name: Install dependencies
-        run: pip install requests geopandas pandas shapely
+        run: pip install -r requirements.txt
+
       - name: Run analyse
         run: python main.py
         env:
-          DRY_RUN: "false" # Zet op "true" voor testen
+          DRY_RUN: "true"
