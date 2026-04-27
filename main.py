@@ -1,91 +1,86 @@
 import os
+import requests
 import geopandas as gpd
 import pandas as pd
 from shapely import wkt
-import requests
 import json
+import shutil
 
-def sla_alle_data_op(alle_matches):
-    """Sla resultaten op als JSON voor je webpagina"""
-    print("Resultaten opslaan naar data.json...")
-    with open('data.json', 'w', encoding='utf-8') as f:
-        json.dump(alle_matches, f, ensure_ascii=False, indent=4)
+# --- CONFIGURATIE ---
+DRY_RUN = os.getenv('DRY_RUN', 'true') == 'true'
+GEMEENTE = "deinze" 
+DRIVE_FILE_ID = "12ak6jAlG2AbMvF1Xe56i6gZ_QaRiB9Cd" 
+WAGEN_FILE = "trage_wegen.gpkg" 
 
-def download_laatste_vergunningen(gemeente):
-    url = f"https://omgevingsloketinzage.omgeving.vlaanderen.be/proxy-omv-up/rs/v1/inzage/projecten?gemeente={gemeente}&limit=100"
+def download_drive_file(file_id, output_path):
+    print(f"Bestand downloaden van Drive...")
+    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    response = requests.get(url, stream=True)
+    with open(output_path, 'wb') as f:
+        shutil.copyfileobj(response.raw, f)
+    print("Download voltooid.")
+
+def haal_api_vergunningen(gemeente):
+    print(f"API bevragen voor {gemeente}...")
+    url = f"https://omgevingsloketinzage.omgeving.vlaanderen.be/proxy-omv-up/rs/v1/inzage/projecten"
+    params = {'gemeente': gemeente, 'limit': 100}
     headers = {'User-Agent': 'Mozilla/5.0'}
     
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, params=params, headers=headers)
     if response.status_code == 200:
         data = response.json()
-        # Converteer API-data naar een DataFrame en dan GeoDataFrame
-        import pandas as pd
+        if not data: return None
         df = pd.DataFrame(data)
-        # Stel: de API geeft 'wktGeometry' terug
         if 'wktGeometry' in df.columns:
             df['geometry'] = df['wktGeometry'].apply(wkt.loads)
             gdf = gpd.GeoDataFrame(df, geometry='geometry', crs="EPSG:31370")
-            gdf = gdf.to_crs("EPSG:4326")
-            gdf.to_file('temp_vergunningen.geojson', driver='GeoJSON')
-            print("Vergunningen succesvol opgehaald van loket.")
+            return gdf.to_crs("EPSG:4326")
     else:
         print(f"API fout: {response.status_code}")
+    return None
 
-# Instellingen
-DRY_RUN = os.getenv('DRY_RUN', 'true') == 'true'
-
-import requests
-import os
-
-def download_bestand(url, lokaal_pad):
-    if not os.path.exists(lokaal_pad):
-        print(f"Bestand niet gevonden, downloaden van {url}...")
-        response = requests.get(url)
-        with open(lokaal_pad, 'wb') as f:
-            f.write(response.content)
-        print("Download voltooid.")
-
-# Gebruik dit in je main functie
-download_bestand("https://drive.google.com/uc?export=download&id=12ak6jAlG2AbMvF1Xe56i6gZ_QaRiB9Cd", "trage_wegen_register.geojson")
+def sla_alle_data_op(alle_matches):
+    print("Resultaten opslaan naar data.json...")
+    with open('data.json', 'w', encoding='utf-8') as f:
+        json.dump(alle_matches, f, ensure_ascii=False, indent=4)
+    print("data.json succesvol aangemaakt.")
 
 def main():
-    print(f"--- Analyse gestart (Dry Run: {DRY_RUN}) ---")
+    print(f"--- Start Analyse (Dry Run: {DRY_RUN}) ---")
     
-    # 1. Laad trage wegen (zorg dat dit bestand in je repo staat)
-    # We laden dit als een GeoDataFrame
-    wegen_gdf = gpd.read_file('trage_wegen_register.geojson')
+    # 1. Data ophalen
+    if not os.path.exists(WAGEN_FILE):
+        download_drive_file(DRIVE_FILE_ID, WAGEN_FILE)
     
-    # 2. Laad je vergunningen data (bijv. uit de JSON die je via API ophaalt)
-    # Stel dat 'vergunningen_brakel.geojson' het bestand is dat we net hebben gegenereerd
-    if not os.path.exists('vergunningen_brakel.geojson'):
-        print("Fout: Bestand vergunningen_brakel.geojson niet gevonden!")
-        return
-        
-    verg_gdf = gpd.read_file('vergunningen_brakel.geojson')
-
-    # 3. Zorg voor hetzelfde coördinatensysteem (EPSG:4326 is WGS84)
-    if wegen_gdf.crs != "EPSG:4326":
-        wegen_gdf = wegen_gdf.to_crs("EPSG:4326")
-    if verg_gdf.crs != "EPSG:4326":
-        verg_gdf = verg_gdf.to_crs("EPSG:4326")
-
-    # 4. Voer de ruimtelijke 'join' uit
-    # Dit zoekt alle vergunningen die de wegen snijden
-    print("Ruimtelijke analyse uitvoeren...")
-    matches = gpd.sjoin(verg_gdf, wegen_gdf, how="inner", predicate="intersects")
-
-    # 5. Resultaten
-    if matches.empty:
-        print("Geen kruisende dossiers gevonden.")
+    wegen_gdf = gpd.read_file(WAGEN_FILE)
+    verg_gdf = haal_api_vergunningen(GEMEENTE)
+    
+    # DEBUG: Check data
+    print(f"Aantal wegen geladen: {len(wegen_gdf)}")
+    if verg_gdf is not None:
+        print(f"Aantal vergunningen geladen: {len(verg_gdf)}")
     else:
-        print(f"Gevonden matches: {len(matches)}")
-        for idx, row in matches.iterrows():
-            dossier_nr = row.get('projectnummer', 'Onbekend')
-            print(f"Match gevonden voor dossier: {dossier_nr}")
-            
-            if not DRY_RUN:
-                # Hier zou je de email-logica aanroepen
-                print(f"Versturen van mail voor {dossier_nr}...")
+        print("Geen vergunningen gevonden.")
+        return
+
+    # 2. CRS Controle
+    print("CRS wegen:", wegen_gdf.crs)
+    print("CRS vergunningen:", verg_gdf.crs)
+    
+    # 3. Ruimtelijke Analyse
+    print("Analyse uitvoeren...")
+    matches = gpd.sjoin(verg_gdf, wegen_gdf, how="inner", predicate="intersects")
+    
+    print(f"Aantal gevonden kruisingen: {len(matches)}")
+
+    # 4. Resultaten opslaan
+    if not matches.empty:
+        # Zet GeoDataFrame om naar een lijst van dicts
+        # We droppen de geometrie kolom voor de JSON, anders crasht json.dump
+        matches_json = matches.drop(columns=['geometry', 'index_right']).to_dict(orient='records')
+        sla_alle_data_op(matches_json)
+    else:
+        print("Geen kruisende dossiers gevonden. Sla data.json over.")
 
 if __name__ == "__main__":
     main()
