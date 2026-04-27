@@ -3,6 +3,13 @@ import geopandas as gpd
 import pandas as pd
 from shapely import wkt
 import requests
+import json
+
+def sla_alle_data_op(alle_matches):
+    """Sla resultaten op als JSON voor je webpagina"""
+    print("Resultaten opslaan naar data.json...")
+    with open('data.json', 'w', encoding='utf-8') as f:
+        json.dump(alle_matches, f, ensure_ascii=False, indent=4)
 
 def download_laatste_vergunningen(gemeente):
     url = f"https://omgevingsloketinzage.omgeving.vlaanderen.be/proxy-omv-up/rs/v1/inzage/projecten?gemeente={gemeente}&limit=100"
