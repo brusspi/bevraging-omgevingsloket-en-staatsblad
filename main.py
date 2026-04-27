@@ -2,6 +2,27 @@ import os
 import geopandas as gpd
 import pandas as pd
 from shapely import wkt
+import requests
+
+def download_laatste_vergunningen(gemeente):
+    url = f"https://omgevingsloketinzage.omgeving.vlaanderen.be/proxy-omv-up/rs/v1/inzage/projecten?gemeente={gemeente}&limit=100"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+        # Converteer API-data naar een DataFrame en dan GeoDataFrame
+        import pandas as pd
+        df = pd.DataFrame(data)
+        # Stel: de API geeft 'wktGeometry' terug
+        if 'wktGeometry' in df.columns:
+            df['geometry'] = df['wktGeometry'].apply(wkt.loads)
+            gdf = gpd.GeoDataFrame(df, geometry='geometry', crs="EPSG:31370")
+            gdf = gdf.to_crs("EPSG:4326")
+            gdf.to_file('temp_vergunningen.geojson', driver='GeoJSON')
+            print("Vergunningen succesvol opgehaald van loket.")
+    else:
+        print(f"API fout: {response.status_code}")
 
 # Instellingen
 DRY_RUN = os.getenv('DRY_RUN', 'true') == 'true'
