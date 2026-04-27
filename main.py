@@ -48,17 +48,18 @@ def sla_alle_data_op(alle_matches):
 def main():
     print(f"--- Start Analyse (Dry Run: {DRY_RUN}) ---")
     
-    # 1. Data ophalen
+    # 1. Wegenkaart downloaden
     if not os.path.exists(WAGEN_FILE):
         download_drive_file(DRIVE_FILE_ID, WAGEN_FILE)
-    
     wegen_gdf = gpd.read_file(WAGEN_FILE)
+    
+    # 2. Vergunningen direct via API ophalen (ipv lokaal bestand)
+    print("Vergunningen ophalen via API...")
     verg_gdf = haal_api_vergunningen(GEMEENTE)
     
-    # DEBUG: Check data
-    print(f"Aantal wegen geladen: {len(wegen_gdf)}")
-    if verg_gdf is not None:
-        print(f"Aantal vergunningen geladen: {len(verg_gdf)}")
+    if verg_gdf is None or verg_gdf.empty:
+        print("Geen vergunningen gevonden of API fout.")
+        return
     else:
         print("Geen vergunningen gevonden.")
         return
