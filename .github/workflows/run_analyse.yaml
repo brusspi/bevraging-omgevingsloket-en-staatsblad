@@ -1,0 +1,37 @@
+name: Update OmgevingsCheck Data
+
+on:
+  schedule:
+    - cron: '0 0 * * 1' # Elke maandag om 00:00 (UTC)
+  workflow_dispatch:      # Hiermee kun je het ook handmatig starten
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write    # Belangrijk: GitHub mag bestanden terugschrijven
+
+    steps:
+      - name: Code ophalen
+        uses: actions/checkout@v4
+
+      - name: Python instellen
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Afhankelijkheden installeren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Analyse uitvoeren
+        run: python bevraging_vlaanderen.py
+
+      - name: Resultaten opslaan (Commit & Push)
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+          git add resultaten_analyse/
+          git commit -m "Automatische data update: $(date +'%d-%m-%Y')" || exit 0
+          git push
