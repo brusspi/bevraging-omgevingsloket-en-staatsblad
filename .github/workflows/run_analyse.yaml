@@ -3,20 +3,25 @@ name: Update OmgevingsCheck Data
 on:
   schedule:
     - cron: '0 0 * * 1' # Elke maandag om 00:00 (UTC)
-  workflow_dispatch:      # Hiermee kun je het ook handmatig starten
+  workflow_dispatch:      # Handmatige trigger
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write    # Belangrijk: GitHub mag bestanden terugschrijven
+      contents: write    
+
+    # OPTIE 2: Forceer Node 24 voor alle stappen in deze job
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
+      # OPTIE 1: Versies verhoogd naar @v5 (ondersteunen Node 24+)
       - name: Code ophalen
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Python instellen
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
