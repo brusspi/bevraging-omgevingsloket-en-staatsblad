@@ -1,21 +1,128 @@
 <!DOCTYPE html>
-<html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <title>OmgevingsCheck Vlaanderen</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; display: flex; margin: 0; height: 100vh; background: #f4f4f4; }
+        #sidebar { width: 400px; border-right: 1px solid #ccc; overflow-y: auto; padding: 20px; background: white; z-index: 10; box-shadow: 2px 0 10px rgba(0,0,0,0.1); }
+        #map { flex-grow: 1; }
+        .selector-box { margin-bottom: 20px; padding-bottom: 20px; border-bottom: 2px solid #004b99; }
+        select { width: 100%; padding: 10px; font-size: 16px; border-radius: 5px; border: 1px solid #ccc; }
+        .dossier-item { border: 1px solid #eee; border-radius: 8px; margin-bottom: 12px; padding: 15px; cursor: pointer; border-left: 5px solid #004b99; }
+        .dossier-item:hover { background: #f0f7ff; }
+        h2 { color: #004b99; margin-top: 0; }
+        .loading { font-style: italic; color: #666; }
+    </style>
+</head>
 <body>
-    <input type="text" id="gemeenteInput" placeholder="Geef gemeente op...">
-    <button onclick="filterData()">Zoek</button>
-    <div id="resultaten"></div>
 
-    <script>
-        async function filterData() {
-            const gemeente = document.getElementById('gemeenteInput').value.toLowerCase();
-            const response = await fetch('data.json');
-            const data = await response.json();
+<div id="sidebar">
+    <div class="selector-box">
+        <h2>OmgevingsCheck</h2>
+        <p>Selecteer een gemeente om kruisingen met trage wegen te bekijken (laatste 30 dagen):</p>
+        <select id="gemeenteSelect" onchange="loadGemeenteData()">
+            <option value="">-- Kies een gemeente --</option>
+        </select>
+    </div>
+    <div id="lijst">Selecteer een gemeente om te starten.</div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    const map = L.map('map').setView([51.0, 4.4], 9);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+
+    let dossierLayer, wegenLayer;
+
+    // 1. Vul de dropdown bij het laden van de pagina
+    async function init() {
+        try {
+            const res = await fetch('resultaten_analyse/gemeenten.json');
+            const gemeenten = await res.json();
+            const select = document.getElementById('gemeenteSelect');
             
-            // Filter de data op basis van de ingevulde gemeente
-            const resultaat = data.filter(item => item.GEMEENTE.toLowerCase() === gemeente);
-            
-            document.getElementById('resultaten').innerHTML = JSON.stringify(resultaat);
+            gemeenten.forEach(g => {
+                let opt = document.createElement('option');
+                opt.value = g.replace(/ /g, "_").replace(/'/g, "");
+                opt.innerHTML = g;
+                select.appendChild(opt);
+            });
+        } catch (e) {
+            console.error("Kon gemeentelijst niet laden", e);
         }
-    </script>
+    }
+
+    // 2. Laad de data voor de gekozen gemeente
+    async function loadGemeenteData() {
+        const g = document.getElementById('gemeenteSelect').value;
+        const lijstDiv = document.getElementById('lijst');
+        if (!g) return;
+
+        lijstDiv.innerHTML = '<p class="loading">Data wordt opgehaald...</p>';
+
+        // Oude lagen verwijderen
+        if (dossierLayer) map.removeLayer(dossierLayer);
+        if (wegenLayer) map.removeLayer(wegenLayer);
+
+        const pad = `resultaten_analyse/${g}`;
+
+        try {
+            const [resLijst, resDossiers, resWegen] = await Promise.all([
+                fetch(`${pad}/overzicht_lijst.json`),
+                fetch(`${pad}/matches_dossiers.geojson`),
+                fetch(`${pad}/matches_wegen.geojson`)
+            ]);
+
+            const data = await resLijst.json();
+            const dossiersGeo = await resDossiers.json();
+            const wegenGeo = await resWegen.json();
+
+            // Wegen op de kaart
+            wegenLayer = L.geoJSON(wegenGeo, { color: '#d32f2f', weight: 4, dashArray: '5, 10' }).addTo(map);
+
+            // Dossiers op de kaart
+            dossierLayer = L.geoJSON(dossiersGeo, {
+                style: { color: '#1976d2', fillOpacity: 0.3, weight: 2 },
+                onEachFeature: (feature, layer) => {
+                    const nr = feature.properties.projectnummer;
+                    const info = data.find(i => i.projectnummer == nr);
+                    layer.bindPopup(`
+                        <strong>Project: ${nr}</strong><br>
+                        📅 Datum: ${info ? info.datum : 'Onbekend'}<hr>
+                        <a href="${info ? info.url : '#'}" target="_blank" style="display:block; background:#004b99; color:white; padding:8px; text-align:center; text-decoration:none; border-radius:4px;">Bekijk Dossier</a>
+                    `);
+                }
+            }).addTo(map);
+
+            map.fitBounds(dossierLayer.getBounds());
+
+            // Lijst in sidebar bouwen
+            lijstDiv.innerHTML = '';
+            data.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'dossier-item';
+                div.innerHTML = `<strong>${item.projectnummer}</strong><br><small>Datum: ${item.datum}</small>`;
+                div.onclick = () => {
+                    dossierLayer.eachLayer(l => {
+                        if(l.feature.properties.projectnummer == item.projectnummer) {
+                            map.fitBounds(l.getBounds());
+                            l.openPopup();
+                        }
+                    });
+                };
+                lijstDiv.appendChild(div);
+            });
+
+        } catch (e) {
+            lijstDiv.innerHTML = '<p>Geen data gevonden voor deze gemeente.</p>';
+        }
+    }
+
+    init();
+</script>
 </body>
 </html>
